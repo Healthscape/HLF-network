@@ -69,7 +69,10 @@
 
 'use strict';
 
-const {Contract} = require('fabric-contract-api');
+const { Contract, Context } = require('fabric-contract-api');
+const { X509Certificate } = require('crypto');
+const asn1js = require('asn1js');
+const pkijs = require('pkijs');
 
 class Chaincode extends Contract {
 
@@ -113,6 +116,13 @@ class Chaincode extends Contract {
 
 	// delete - remove a asset key/value pair from state
 	async DeleteAsset(ctx, id) {
+
+		const userRole = await this.getUserRole(ctx);
+		if (!("ROLE_ADMIN" === userRole)) {
+            throw new Error("Permission denied: Only users with 'admin' role can perform this operation");
+        }
+		
+
 		if (!id) {
 			throw new Error('Asset name must not be empty');
 		}
@@ -208,7 +218,7 @@ class Chaincode extends Contract {
 			let objectType;
 			let attributes;
 			(
-				{objectType, attributes} = await ctx.stub.splitCompositeKey(responseRange.value.key)
+				{ objectType, attributes } = await ctx.stub.splitCompositeKey(responseRange.value.key)
 			);
 
 			console.log(objectType);
@@ -261,7 +271,7 @@ class Chaincode extends Contract {
 	// Paginated range queries are only valid for read only transactions.
 	async GetAssetsByRangeWithPagination(ctx, startKey, endKey, pageSize, bookmark) {
 
-		const {iterator, metadata} = await ctx.stub.getStateByRangeWithPagination(startKey, endKey, pageSize, bookmark);
+		const { iterator, metadata } = await ctx.stub.getStateByRangeWithPagination(startKey, endKey, pageSize, bookmark);
 		let results = {};
 
 		results.results = await this._GetAllResults(iterator, false);
@@ -283,7 +293,7 @@ class Chaincode extends Contract {
 	// Paginated queries are only valid for read only transactions.
 	async QueryAssetsWithPagination(ctx, queryString, pageSize, bookmark) {
 
-		const {iterator, metadata} = await ctx.stub.getQueryResultWithPagination(queryString, pageSize, bookmark);
+		const { iterator, metadata } = await ctx.stub.getQueryResultWithPagination(queryString, pageSize, bookmark);
 		let results = {};
 
 		results.results = await this._GetAllResults(iterator, false);
@@ -406,6 +416,50 @@ class Chaincode extends Contract {
 			);
 		}
 	}
+
+	async getUserRole(ctx) {
+
+		const creatorBytes = ctx.stub.getCreator();
+		console.log(creatorBytes)
+		const clientIdentity = new TextDecoder().decode(creatorBytes.idBytes);
+		console.log(clientIdentity);
+		// const clientIdentity = "-----BEGIN CERTIFICATE-----\n" + "MIICYzCCAgqgAwIBAgIUNaMG+VBHd5B9VIRGWhK6306R3PYwCgYIKoZIzj0EAwIw\n" + "cDELMAkGA1UEBhMCVVMxFzAVBgNVBAgTDk5vcnRoIENhcm9saW5hMQ8wDQYDVQQH\n" + "EwZEdXJoYW0xGTAXBgNVBAoTEG9yZzEuZXhhbXBsZS5jb20xHDAaBgNVBAMTE2Nh\n" + "Lm9yZzEuZXhhbXBsZS5jb20wHhcNMjQwMTE5MjEwNjAwWhcNMjUwMTE4MjExNzAw\n" + "WjBhMTAwCwYDVQQLEwRvcmcxMA0GA1UECxMGY2xpZW50MBIGA1UECxMLZGVwYXJ0\n" + "bWVudDExLTArBgNVBAMTJDMyZjI4Mjk4LWEzNmItNGRiZi05NWMxLTlmNjEzOTNh\n" + "ODUyMDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABDAK8pUuDfOQgP0QLrrueaZP\n" + "nY1BvvzzhzqZI9oq8J2EkzPXwt70Tti8j8QdDu86NBTpLYFDkBtGArKk313mieWj\n" + "gZAwgY0wDgYDVR0PAQH/BAQDAgeAMAwGA1UdEwEB/wQCMAAwHQYDVR0OBBYEFHf8\n" + "lj0JK5ol8rnwlsT7xTbUbmg5MB8GA1UdIwQYMBaAFNXgaRSZi9ozH3walC0//pUz\n" + "MZHRMC0GCCoDBAUGBwgBBCF7ImF0dHJzIjp7InJvbGUiOiJST0xFX1JFR1VMQVIi\n" + "fX0wCgYIKoZIzj0EAwIDRwAwRAIgQqGPUuCBHm6fTiy1oh6XZgphcbDL/VhBG+NP\n" + "UenRZZQCIDluTY5shZyVw7B6J/czi15Y/1wv7BPgx6w1tugJlidn\n" + "-----END CERTIFICATE-----"
+
+		const userCert = await this.generateX509CertificateFromPEM(clientIdentity);
+		const extensions = userCert.extensions;
+		const customExtension = extensions.find(ext => ext.extnID === '1.2.3.4.5.6.7.8.1');
+
+		if(customExtension === undefined){
+			return "ROLE_ADMIN"
+		}
+
+		const extnValue = customExtension.extnValue.valueBeforeDecodeView;
+		const decoder = new TextDecoder();
+		const extnValueDecoded = decoder.decode(extnValue);
+
+		const startIndex = extnValueDecoded.indexOf("ROLE_")
+		const endIndex = extnValueDecoded.indexOf("\"", startIndex)
+		const role = extnValueDecoded.substring(startIndex, endIndex);
+
+		console.log("Role of user running the request is: " + role)
+
+		return role
+	}
+
+	async generateX509CertificateFromPEM(pemCertificate) {
+		const cleanedPem = pemCertificate.replace("-----BEGIN CERTIFICATE-----", "")
+			.replace("-----END CERTIFICATE-----", "")
+			.replace(/\n/g, "");
+
+		try {
+			const asn1 = asn1js.fromBER(Buffer.from(cleanedPem, 'base64'));
+			const certificate = new pkijs.Certificate({ schema: asn1.result });
+			return certificate
+		} catch (e) {
+			throw new Error("Failed to generate X.509 certificate from PEM");
+		}
+	}
+
 }
 
 module.exports = Chaincode;

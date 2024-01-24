@@ -1,0 +1,6 @@
+[
+    {
+        "query" : "DeleteAsset",
+        "args": ["asset4"]
+    }
+]
