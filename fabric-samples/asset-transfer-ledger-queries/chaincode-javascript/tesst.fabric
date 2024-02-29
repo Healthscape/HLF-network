@@ -1,6 +1,21 @@
 [
     {
-        "query" : "DeleteAsset",
-        "args": ["asset4"]
+        "query" : "GetAccessRequest",
+        "args": [""]
+    },
+
+    {
+        "query" : "GetAssetsByRange",
+        "args": ["",""]
+    },
+
+    {
+        "invoke" : "InitLedger",
+        "args": []
+    },
+
+    {
+        "invoke" : "CreateAsset",
+        "args": ["{\"docType\":\"asset\",\"assetID\":\"asset10\",\"color\":\"blue\",\"size\":5,\"owner\":\"Tom\",\"appraisedValue\":100}"]
     }
 ]

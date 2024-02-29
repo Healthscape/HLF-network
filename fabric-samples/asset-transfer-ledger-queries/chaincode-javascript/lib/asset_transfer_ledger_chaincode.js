@@ -4,104 +4,146 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-// ====CHAINCODE EXECUTION SAMPLES (CLI) ==================
+const { Contract } = require('fabric-contract-api');
+const { Util } = require('./util.js');
+const {AccessRequest} = require('./asset_definition.js');
+const DocType = require('./enums.js');
 
-// ==== Invoke assets ====
-// peer chaincode invoke -C CHANNEL_NAME -n asset_transfer -c '{"Args":["CreateAsset","asset1","blue","35","Tom","100"]}'
-// peer chaincode invoke -C CHANNEL_NAME -n asset_transfer -c '{"Args":["CreateAsset","asset2","red","50","Tom","150"]}'
-// peer chaincode invoke -C CHANNEL_NAME -n asset_transfer -c '{"Args":["CreateAsset","asset3","blue","70","Tom","200"]}'
-// peer chaincode invoke -C CHANNEL_NAME -n asset_transfer -c '{"Args":["TransferAsset","asset2","jerry"]}'
-// peer chaincode invoke -C CHANNEL_NAME -n asset_transfer -c '{"Args":["TransferAssetByColor","blue","jerry"]}'
-// peer chaincode invoke -C CHANNEL_NAME -n asset_transfer -c '{"Args":["DeleteAsset","asset1"]}'
-
-// ==== Query assets ====
-// peer chaincode query -C CHANNEL_NAME -n asset_transfer -c '{"Args":["ReadAsset","asset1"]}'
-// peer chaincode query -C CHANNEL_NAME -n asset_transfer -c '{"Args":["GetAssetsByRange","asset1","asset3"]}'
-// peer chaincode query -C CHANNEL_NAME -n asset_transfer -c '{"Args":["GetAssetHistory","asset1"]}'
-
-// Rich Query (Only supported if CouchDB is used as state database):
-// peer chaincode query -C CHANNEL_NAME -n asset_transfer -c '{"Args":["QueryAssetsByOwner","Tom"]}' output issue
-// peer chaincode query -C CHANNEL_NAME -n asset_transfer -c '{"Args":["QueryAssets","{\"selector\":{\"owner\":\"Tom\"}}"]}'
-
-// Rich Query with Pagination (Only supported if CouchDB is used as state database):
-// peer chaincode query -C CHANNEL_NAME -n asset_transfer -c '{"Args":["QueryAssetsWithPagination","{\"selector\":{\"owner\":\"Tom\"}}","3",""]}'
-
-// INDEXES TO SUPPORT COUCHDB RICH QUERIES
-//
-// Indexes in CouchDB are required in order to make JSON queries efficient and are required for
-// any JSON query with a sort. Indexes may be packaged alongside
-// chaincode in a META-INF/statedb/couchdb/indexes directory. Each index must be defined in its own
-// text file with extension *.json with the index definition formatted in JSON following the
-// CouchDB index JSON syntax as documented at:
-// http://docs.couchdb.org/en/2.3.1/api/database/find.html#db-index
-//
-// This asset transfer ledger example chaincode demonstrates a packaged
-// index which you can find in META-INF/statedb/couchdb/indexes/indexOwner.json.
-//
-// If you have access to the your peer's CouchDB state database in a development environment,
-// you may want to iteratively test various indexes in support of your chaincode queries.  You
-// can use the CouchDB Fauxton interface or a command line curl utility to create and update
-// indexes. Then once you finalize an index, include the index definition alongside your
-// chaincode in the META-INF/statedb/couchdb/indexes directory, for packaging and deployment
-// to managed environments.
-//
-// In the examples below you can find index definitions that support asset transfer ledger
-// chaincode queries, along with the syntax that you can use in development environments
-// to create the indexes in the CouchDB Fauxton interface or a curl command line utility.
-//
-
-// Index for docType, owner.
-//
-// Example curl command line to define index in the CouchDB channel_chaincode database
-// curl -i -X POST -H "Content-Type: application/json" -d "{\"index\":{\"fields\":[\"docType\",\"owner\"]},\"name\":\"indexOwner\",\"ddoc\":\"indexOwnerDoc\",\"type\":\"json\"}" http://hostname:port/myc1_assets/_index
-//
-
-// Index for docType, owner, size (descending order).
-//
-// Example curl command line to define index in the CouchDB channel_chaincode database
-// curl -i -X POST -H "Content-Type: application/json" -d "{\"index\":{\"fields\":[{\"size\":\"desc\"},{\"docType\":\"desc\"},{\"owner\":\"desc\"}]},\"ddoc\":\"indexSizeSortDoc\", \"name\":\"indexSizeSortDesc\",\"type\":\"json\"}" http://hostname:port/myc1_assets/_index
-
-// Rich Query with index design doc and index name specified (Only supported if CouchDB is used as state database):
-//   peer chaincode query -C CHANNEL_NAME -n ledger -c '{"Args":["QueryAssets","{\"selector\":{\"docType\":\"asset\",\"owner\":\"Tom\"}, \"use_index\":[\"_design/indexOwnerDoc\", \"indexOwner\"]}"]}'
-
-// Rich Query with index design doc specified only (Only supported if CouchDB is used as state database):
-//   peer chaincode query -C CHANNEL_NAME -n ledger -c '{"Args":["QueryAssets","{\"selector\":{\"docType\":{\"$eq\":\"asset\"},\"owner\":{\"$eq\":\"Tom\"},\"size\":{\"$gt\":0}},\"fields\":[\"docType\",\"owner\",\"size\"],\"sort\":[{\"size\":\"desc\"}],\"use_index\":\"_design/indexSizeSortDoc\"}"]}'
-
-'use strict';
-
-const { Contract, Context } = require('fabric-contract-api');
-const { X509Certificate } = require('crypto');
-const asn1js = require('asn1js');
-const pkijs = require('pkijs');
 
 class Chaincode extends Contract {
 
-	// CreateAsset - create a new asset, store into chaincode state
-	async CreateAsset(ctx, assetID, color, size, owner, appraisedValue) {
-		const exists = await this.AssetExists(ctx, assetID);
-		if (exists) {
-			throw new Error(`The asset ${assetID} already exists`);
+	async beforeTransaction(ctx) {
+		const functionAndParameters = ctx.stub.getFunctionAndParameters();
+		const params = functionAndParameters.params.join(',');
+		const function_ = functionAndParameters.fcn;
+
+		console.log();
+		console.log('===================================== START =====================================');
+		console.info(`Function name: ${function_}, params: [${params}]`);
+		await this.clientIdentityInfo(ctx);
+	}
+
+	async clientIdentityInfo(ctx) {
+		try {
+			const clientIdentityId = ctx.clientIdentity.getID();
+			const clientIdentityMspId = ctx.clientIdentity.getMSPID();
+			const role = await Util.GetUserRole(ctx);
+			const cn = await Util.GetCN(ctx);
+
+			console.info(`clientIdentityId: ${clientIdentityId}`);
+			console.info(`clientIdentityMspId: ${clientIdentityMspId}`);
+			console.info(`User Role: ${role}`);
+			console.info(`CN: ${cn}`);
+		} catch (error) {
+			console.log(error);
+			const errorMessage = 'Error during method ctx.clientIdentity.getAttributeValue(...)';
+			console.error(errorMessage);
+			throw new Error(errorMessage);
+		}
+	}
+
+	async afterTransaction() {
+		console.log();
+		console.log('===================================== END =====================================');
+	}
+
+	async hasPermission(ctx, methodName){
+		return await Util.RoleHasPermission(ctx, methodName);
+	}
+
+	// getAccessRequest - get access request, stored into chaincode state
+	async GetAccessRequest(ctx, userId){
+		const methodName = 'GetAccessRequest';
+		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
+
+		if(!hasPermission){
+			throw new Error(`Unauthorized access: ${methodName}`);
 		}
 
-		// ==== Create asset object and marshal to JSON ====
-		let asset = {
-			docType: 'asset',
-			assetID: assetID,
-			color: color,
-			size: size,
-			owner: owner,
-			appraisedValue: appraisedValue
-		};
+		const role = await Util.GetUserRole(ctx);
+		const cn = await Util.GetCN(ctx);
+		let result;
 
+		if(role === 'ROLE_PATIENT'){
+			result = await this.getAccessRequest(ctx, cn, userId);
+		}else if(role === 'ROLE_PRACTITIONER'){
+			result = await this.getAccessRequest(ctx, userId, cn);
+		}else{
+			throw new Error(`Unauthorized access: ${methodName}`);
+		}
 
-		// === Save asset to state ===
-		await ctx.stub.putState(assetID, Buffer.from(JSON.stringify(asset)));
-		let indexName = 'color~name';
-		let colorNameIndexKey = await ctx.stub.createCompositeKey(indexName, [asset.color, asset.assetID]);
+		return JSON.stringify(result.Record);
+	}
 
-		//  Save index entry to state. Only the key name is needed, no need to store a duplicate copy of the marble.
-		//  Note - passing a 'nil' value will effectively delete the key from state, therefore we pass null character as value
-		await ctx.stub.putState(colorNameIndexKey, Buffer.from('\u0000'));
+	// CreateAccessRequest - create a new access request, store into chaincode state
+	async CreateAccessRequest(ctx, patientId, time){
+		const methodName = 'CreateAccessRequest';
+		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
+
+		if(!hasPermission){
+			throw new Error(`Unauthorized access: ${methodName}`);
+		}
+
+		const cn = await Util.GetCN(ctx);
+		const accessReqExists = await this.AccessRequestExists(ctx, patientId, cn);
+		if(accessReqExists){
+			throw new Error(`Access Request for ids:[${patientId} , ${cn}] already exists`);
+		}
+
+		let txID =  ctx.stub.getTxID();
+		const accessReq = new AccessRequest(txID ,patientId, cn, time);
+		await ctx.stub.putState(txID, Buffer.from(JSON.stringify(accessReq)));
+		return JSON.stringify(accessReq);
+	}
+
+	// AccessRequestExists - checks if access request already exists in chaincode state, it uses index defined in indexPatientPractitioner.json file (by default)
+	async getAccessRequest(ctx, patientId, practitionerId){
+		let queryString = {};
+		queryString.selector = {};
+		queryString.selector.docType = DocType.ACCESS_REQUEST;
+		queryString.selector.patientId = patientId;
+		queryString.selector.practitionerId = practitionerId;
+		let results =  await this.GetQueryResultForQueryString(ctx, JSON.stringify(queryString));
+		if(results.length === 1){
+			console.log(results[0]);
+			return results[0];
+		}else if(results.length === 0){
+			console.log('NULL');
+			return null;
+		}else{
+			throw new Error(`Found multiple assets of type ${DocType.ACCESS_REQUEST} and ids: [${patientId} , ${practitionerId}]`);
+		}
+	}
+
+	// AccessRequestExists - checks if access request already exists in chaincode state, it uses index defined in indexPatientPractitioner.json file (by default)
+	async AccessRequestExists(ctx, patientId, practitionerId){
+		const accessReq = await this.getAccessRequest(ctx, patientId, practitionerId);
+		return accessReq !== null;
+	}
+
+	// CreateAsset - create a new asset, store into chaincode state
+	async CreatePatientRecord(ctx) {
+
+		await Util.GetUserRole(ctx);
+
+		// await this.beforeTransaction(ctx);
+
+		// const asset = PatientRecord(JSON.parse(assetStr));
+		// const assetID = asset.elementaryInfo.ssn;
+
+		// const exists = await this.AssetExists(ctx, assetID);
+		// if (exists) {
+		// 	throw new Error(`The asset ${assetID} already exists`);
+		// }
+
+		// // === Save asset to state ===
+		// await ctx.stub.putState(assetID, Buffer.from(JSON.stringify(asset)));
+		// let indexName = 'color~name';
+		// let colorNameIndexKey = await ctx.stub.createCompositeKey(indexName, [asset.color, asset.assetID]);
+
+		// //  Save index entry to state. Only the key name is needed, no need to store a duplicate copy of the marble.
+		// //  Note - passing a 'nil' value will effectively delete the key from state, therefore we pass null character as value
+		// await ctx.stub.putState(colorNameIndexKey, Buffer.from('\u0000'));
 	}
 
 	// ReadAsset returns the asset stored in the world state with given id.
@@ -117,11 +159,11 @@ class Chaincode extends Contract {
 	// delete - remove a asset key/value pair from state
 	async DeleteAsset(ctx, id) {
 
-		const userRole = await this.getUserRole(ctx);
-		if (!("ROLE_ADMIN" === userRole)) {
-            throw new Error("Permission denied: Only users with 'admin' role can perform this operation");
-        }
-		
+		// const userRole = await this.getUserRole(ctx);
+		// if (!("ROLE_ADMIN" === userRole)) {
+		//     throw new Error("Permission denied: Only users with 'admin' role can perform this operation");
+		// }
+
 
 		if (!id) {
 			throw new Error('Asset name must not be empty');
@@ -261,7 +303,7 @@ class Chaincode extends Contract {
 		let resultsIterator = await ctx.stub.getQueryResult(queryString);
 		let results = await this._GetAllResults(resultsIterator, false);
 
-		return JSON.stringify(results);
+		return results;
 	}
 
 	// Example: Pagination with Range Query
@@ -356,108 +398,6 @@ class Chaincode extends Contract {
 		}
 		iterator.close();
 		return allResults;
-	}
-
-	// InitLedger creates sample assets in the ledger
-	async InitLedger(ctx) {
-		const assets = [
-			{
-				assetID: 'asset1',
-				color: 'blue',
-				size: 5,
-				owner: 'Tom',
-				appraisedValue: 100
-			},
-			{
-				assetID: 'asset2',
-				color: 'red',
-				size: 5,
-				owner: 'Brad',
-				appraisedValue: 100
-			},
-			{
-				assetID: 'asset3',
-				color: 'green',
-				size: 10,
-				owner: 'Jin Soo',
-				appraisedValue: 200
-			},
-			{
-				assetID: 'asset4',
-				color: 'yellow',
-				size: 10,
-				owner: 'Max',
-				appraisedValue: 200
-			},
-			{
-				assetID: 'asset5',
-				color: 'black',
-				size: 15,
-				owner: 'Adriana',
-				appraisedValue: 250
-			},
-			{
-				assetID: 'asset6',
-				color: 'white',
-				size: 15,
-				owner: 'Michel',
-				appraisedValue: 250
-			},
-		];
-
-		for (const asset of assets) {
-			await this.CreateAsset(
-				ctx,
-				asset.assetID,
-				asset.color,
-				asset.size,
-				asset.owner,
-				asset.appraisedValue
-			);
-		}
-	}
-
-	async getUserRole(ctx) {
-
-		const creatorBytes = ctx.stub.getCreator();
-		console.log(creatorBytes)
-		const clientIdentity = new TextDecoder().decode(creatorBytes.idBytes);
-		console.log(clientIdentity);
-		// const clientIdentity = "-----BEGIN CERTIFICATE-----\n" + "MIICYzCCAgqgAwIBAgIUNaMG+VBHd5B9VIRGWhK6306R3PYwCgYIKoZIzj0EAwIw\n" + "cDELMAkGA1UEBhMCVVMxFzAVBgNVBAgTDk5vcnRoIENhcm9saW5hMQ8wDQYDVQQH\n" + "EwZEdXJoYW0xGTAXBgNVBAoTEG9yZzEuZXhhbXBsZS5jb20xHDAaBgNVBAMTE2Nh\n" + "Lm9yZzEuZXhhbXBsZS5jb20wHhcNMjQwMTE5MjEwNjAwWhcNMjUwMTE4MjExNzAw\n" + "WjBhMTAwCwYDVQQLEwRvcmcxMA0GA1UECxMGY2xpZW50MBIGA1UECxMLZGVwYXJ0\n" + "bWVudDExLTArBgNVBAMTJDMyZjI4Mjk4LWEzNmItNGRiZi05NWMxLTlmNjEzOTNh\n" + "ODUyMDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABDAK8pUuDfOQgP0QLrrueaZP\n" + "nY1BvvzzhzqZI9oq8J2EkzPXwt70Tti8j8QdDu86NBTpLYFDkBtGArKk313mieWj\n" + "gZAwgY0wDgYDVR0PAQH/BAQDAgeAMAwGA1UdEwEB/wQCMAAwHQYDVR0OBBYEFHf8\n" + "lj0JK5ol8rnwlsT7xTbUbmg5MB8GA1UdIwQYMBaAFNXgaRSZi9ozH3walC0//pUz\n" + "MZHRMC0GCCoDBAUGBwgBBCF7ImF0dHJzIjp7InJvbGUiOiJST0xFX1JFR1VMQVIi\n" + "fX0wCgYIKoZIzj0EAwIDRwAwRAIgQqGPUuCBHm6fTiy1oh6XZgphcbDL/VhBG+NP\n" + "UenRZZQCIDluTY5shZyVw7B6J/czi15Y/1wv7BPgx6w1tugJlidn\n" + "-----END CERTIFICATE-----"
-
-		const userCert = await this.generateX509CertificateFromPEM(clientIdentity);
-		const extensions = userCert.extensions;
-		const customExtension = extensions.find(ext => ext.extnID === '1.2.3.4.5.6.7.8.1');
-
-		if(customExtension === undefined){
-			return "ROLE_ADMIN"
-		}
-
-		const extnValue = customExtension.extnValue.valueBeforeDecodeView;
-		const decoder = new TextDecoder();
-		const extnValueDecoded = decoder.decode(extnValue);
-
-		const startIndex = extnValueDecoded.indexOf("ROLE_")
-		const endIndex = extnValueDecoded.indexOf("\"", startIndex)
-		const role = extnValueDecoded.substring(startIndex, endIndex);
-
-		console.log("Role of user running the request is: " + role)
-
-		return role
-	}
-
-	async generateX509CertificateFromPEM(pemCertificate) {
-		const cleanedPem = pemCertificate.replace("-----BEGIN CERTIFICATE-----", "")
-			.replace("-----END CERTIFICATE-----", "")
-			.replace(/\n/g, "");
-
-		try {
-			const asn1 = asn1js.fromBER(Buffer.from(cleanedPem, 'base64'));
-			const certificate = new pkijs.Certificate({ schema: asn1.result });
-			return certificate
-		} catch (e) {
-			throw new Error("Failed to generate X.509 certificate from PEM");
-		}
 	}
 
 }

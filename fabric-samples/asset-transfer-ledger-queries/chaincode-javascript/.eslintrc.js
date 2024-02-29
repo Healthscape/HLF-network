@@ -1,7 +1,6 @@
 /*
  * SPDX-License-Identifier: Apache-2.0
  */
-'use strict';
 
 module.exports = {
 	env: {
@@ -10,7 +9,7 @@ module.exports = {
 	},
 	parserOptions: {
 		ecmaVersion: 8,
-		sourceType: 'script'
+		sourceType: 'module'
 	},
 	extends: 'eslint:recommended',
 	rules: {
