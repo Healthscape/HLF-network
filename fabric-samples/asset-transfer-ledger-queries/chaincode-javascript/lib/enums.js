@@ -1,21 +1,22 @@
 const DocType = Object.freeze({
-	ACCESS_REQUEST: 'AccessRequest',
-	PATIENT_RECORD: 'PatientRecord'
+	ACCESS_REQUEST: 'ACCESS_REQUEST',
+	PATIENT_RECORD: 'PATIENT_RECORD',
+	ASSOCIATION: 'ASSOCIATION',
+	PATIENT_IDENTIFIERS: 'PATIENT_IDENTIFIERS'
 });
 
 const AccessRequestDecision = Object.freeze({
-	UNDEFINED: 'Undefined',
-	UNLIMITED: 'Unlimited',
-	NO_ACCESS: 'NoAccess',
-	ONE_TIME: 'OneTime'
+	UNDEFINED: 'UNDEFINED',
+	UNLIMITED: 'UNLIMITED',
+	NO_ACCESS: 'NO_ACCESS',
+	ONE_TIME: 'NO_ACCESS',
+	CUSTOM: 'CUSTOM'
 });
 
-const AccessRequestDecisionType = Object.freeze({
-	UNDEFINED: 'Undefined',
-	RECORD: 'Record',
-	ITEMS: 'Items'
+const Role = Object.freeze({
+	ADMIN: 'ROLE_ADMIN',
+	PATIENT: 'ROLE_PATIENT',
+	PRACTITIONER: 'ROLE_PRACTITIONER'
 });
 
-module.exports = DocType;
-module.exports = AccessRequestDecision;
-module.exports = AccessRequestDecisionType;
+module.exports = {DocType, AccessRequestDecision, Role};

@@ -6,155 +6,256 @@
 
 const { Contract } = require('fabric-contract-api');
 const { Util } = require('./util.js');
-const {AccessRequest} = require('./asset_definition.js');
-const DocType = require('./enums.js');
+const { PatientRecordChaincode } = require('./patient_record_chaincode.js');
+const { AccessRequestChaincode } = require('./access_request_chaincode.js');
+const { AssociationPatientRecordChaincode } = require('./association_chaincode.js');
+const { PatientIdentifiersChaincode } = require('./patient_identifiers_chaincode.js');
+const { TransactionUtils } = require('./transaction_utils.js');
 
 
 class Chaincode extends Contract {
-
-	async beforeTransaction(ctx) {
-		const functionAndParameters = ctx.stub.getFunctionAndParameters();
-		const params = functionAndParameters.params.join(',');
-		const function_ = functionAndParameters.fcn;
-
-		console.log();
-		console.log('===================================== START =====================================');
-		console.info(`Function name: ${function_}, params: [${params}]`);
-		await this.clientIdentityInfo(ctx);
+	async beforeTransaction(ctx){
+		TransactionUtils.beforeTransaction(ctx);
 	}
 
-	async clientIdentityInfo(ctx) {
-		try {
-			const clientIdentityId = ctx.clientIdentity.getID();
-			const clientIdentityMspId = ctx.clientIdentity.getMSPID();
-			const role = await Util.GetUserRole(ctx);
-			const cn = await Util.GetCN(ctx);
-
-			console.info(`clientIdentityId: ${clientIdentityId}`);
-			console.info(`clientIdentityMspId: ${clientIdentityMspId}`);
-			console.info(`User Role: ${role}`);
-			console.info(`CN: ${cn}`);
-		} catch (error) {
-			console.log(error);
-			const errorMessage = 'Error during method ctx.clientIdentity.getAttributeValue(...)';
-			console.error(errorMessage);
-			throw new Error(errorMessage);
-		}
+	async afterTransaction(){
+		TransactionUtils.afterTransaction();
 	}
 
-	async afterTransaction() {
-		console.log();
-		console.log('===================================== END =====================================');
-	}
+	// ==================================================================================================
+	// ========================================= ACCESS REQUEST =========================================
+	// ==================================================================================================
 
-	async hasPermission(ctx, methodName){
-		return await Util.RoleHasPermission(ctx, methodName);
-	}
-
-	// getAccessRequest - get access request, stored into chaincode state
-	async GetAccessRequest(ctx, userId){
-		const methodName = 'GetAccessRequest';
-		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
-
-		if(!hasPermission){
-			throw new Error(`Unauthorized access: ${methodName}`);
-		}
-
-		const role = await Util.GetUserRole(ctx);
-		const cn = await Util.GetCN(ctx);
-		let result;
-
-		if(role === 'ROLE_PATIENT'){
-			result = await this.getAccessRequest(ctx, cn, userId);
-		}else if(role === 'ROLE_PRACTITIONER'){
-			result = await this.getAccessRequest(ctx, userId, cn);
-		}else{
-			throw new Error(`Unauthorized access: ${methodName}`);
-		}
-
-		return JSON.stringify(result.Record);
-	}
-
-	// CreateAccessRequest - create a new access request, store into chaincode state
-	async CreateAccessRequest(ctx, patientId, time){
-		const methodName = 'CreateAccessRequest';
-		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
-
-		if(!hasPermission){
-			throw new Error(`Unauthorized access: ${methodName}`);
-		}
-
-		const cn = await Util.GetCN(ctx);
-		const accessReqExists = await this.AccessRequestExists(ctx, patientId, cn);
-		if(accessReqExists){
-			throw new Error(`Access Request for ids:[${patientId} , ${cn}] already exists`);
-		}
-
-		let txID =  ctx.stub.getTxID();
-		const accessReq = new AccessRequest(txID ,patientId, cn, time);
-		await ctx.stub.putState(txID, Buffer.from(JSON.stringify(accessReq)));
+	// GetAccessRequestForUser - get access request between ctx user and userId, stored into chaincode state
+	async GetAccessRequestForUser(ctx, userId){
+		let accessReq = await AccessRequestChaincode.GetAccessRequestForUser(ctx, userId);
 		return JSON.stringify(accessReq);
 	}
 
-	// AccessRequestExists - checks if access request already exists in chaincode state, it uses index defined in indexPatientPractitioner.json file (by default)
-	async getAccessRequest(ctx, patientId, practitionerId){
-		let queryString = {};
-		queryString.selector = {};
-		queryString.selector.docType = DocType.ACCESS_REQUEST;
-		queryString.selector.patientId = patientId;
-		queryString.selector.practitionerId = practitionerId;
-		let results =  await this.GetQueryResultForQueryString(ctx, JSON.stringify(queryString));
-		if(results.length === 1){
-			console.log(results[0]);
-			return results[0];
-		}else if(results.length === 0){
-			console.log('NULL');
-			return null;
-		}else{
-			throw new Error(`Found multiple assets of type ${DocType.ACCESS_REQUEST} and ids: [${patientId} , ${practitionerId}]`);
+	// CreateAccessRequest - create a new access request between ctx user and patientId, store into chaincode state
+	async CreateAccessRequest(ctx, patientId, time){
+		let accessReq = await AccessRequestChaincode.CreateAccessRequest(ctx, patientId, time);
+		return JSON.stringify(accessReq);
+	}
+
+	// IsAccessRequestApproved - checks if access request is approved
+	async IsAccessRequestApproved(ctx, requestId){
+		let accessReq = await AccessRequestChaincode.GetAccessRequest(ctx, requestId);
+		let approved = await AccessRequestChaincode.CheckIfAccessRequestValid(accessReq);
+		let association = await AssociationPatientRecordChaincode.GetAssociation(ctx, accessReq.patientId);
+		let record = '';
+		if(approved){
+			record = await PatientRecordChaincode.GetPatientRecord(ctx, association.recordId);
+			record.userId = accessReq.patientId;
 		}
+		return JSON.stringify(record);
 	}
 
 	// AccessRequestExists - checks if access request already exists in chaincode state, it uses index defined in indexPatientPractitioner.json file (by default)
 	async AccessRequestExists(ctx, patientId, practitionerId){
-		const accessReq = await this.getAccessRequest(ctx, patientId, practitionerId);
-		return accessReq !== null;
+		return await AccessRequestChaincode.AccessRequestExists(ctx, patientId, practitionerId);
 	}
 
-	// CreateAsset - create a new asset, store into chaincode state
-	async CreatePatientRecord(ctx) {
-
-		await Util.GetUserRole(ctx);
-
-		// await this.beforeTransaction(ctx);
-
-		// const asset = PatientRecord(JSON.parse(assetStr));
-		// const assetID = asset.elementaryInfo.ssn;
-
-		// const exists = await this.AssetExists(ctx, assetID);
-		// if (exists) {
-		// 	throw new Error(`The asset ${assetID} already exists`);
-		// }
-
-		// // === Save asset to state ===
-		// await ctx.stub.putState(assetID, Buffer.from(JSON.stringify(asset)));
-		// let indexName = 'color~name';
-		// let colorNameIndexKey = await ctx.stub.createCompositeKey(indexName, [asset.color, asset.assetID]);
-
-		// //  Save index entry to state. Only the key name is needed, no need to store a duplicate copy of the marble.
-		// //  Note - passing a 'nil' value will effectively delete the key from state, therefore we pass null character as value
-		// await ctx.stub.putState(colorNameIndexKey, Buffer.from('\u0000'));
+	// GetAccessRequestsByReviewed - gets all access requests attached to user from context by reviewed property
+	async GetAccessRequestsByReviewed(ctx, reviewed){
+		let accessReqs = await AccessRequestChaincode.GetAccessRequestsByReviewed(ctx, reviewed);
+		return JSON.stringify(accessReqs);
 	}
 
-	// ReadAsset returns the asset stored in the world state with given id.
-	async ReadAsset(ctx, id) {
-		const assetJSON = await ctx.stub.getState(id); // get the asset from chaincode state
-		if (!assetJSON || assetJSON.length === 0) {
-			throw new Error(`Asset ${id} does not exist`);
+	// GetAccessRequestsByStatus - gets all access requests attached to user from context by decision property
+	async GetAccessRequestsByStatus(ctx, status){
+		let accessReqs = await AccessRequestChaincode.GetAccessRequestsByStatus(ctx, status);
+		return JSON.stringify(accessReqs);
+	}
+
+	// GetRecentAccessRequests - gets most recent access requests of user from context
+	async GetRecentAccessRequests(ctx){
+		let accessReqs = await AccessRequestChaincode.GetRecentAccessRequests(ctx);
+		return JSON.stringify(accessReqs);
+	}
+
+	// ReviewAccessRequest - updates access request with patients decision
+	async ReviewAccessRequest(ctx, requestId, desicion, availableFrom, availableUntil, itemsAccess, time){
+		return await AccessRequestChaincode.ReviewAccessRequest(ctx, requestId, desicion, availableFrom, availableUntil, itemsAccess, time);
+	}
+
+	// GetAccessRequestHistory - gets access request history
+	async GetAccessRequestHistory(ctx, requestId){
+		let accessReqHistory = await AccessRequestChaincode.GetAccessRequestHistory(ctx, requestId);
+		return JSON.stringify(accessReqHistory);
+	}
+
+	// GetAllAvailableAccessRequests - gets all approved requests related to practitioner form ctx
+	async GetAllAvailableAccessRequests(ctx) {
+		let role = await Util.GetUserRole(ctx);
+
+		if(role !== 'ROLE_PRACTITIONER'){
+			throw new Error('unauthorized access to patient record!');
 		}
 
-		return assetJSON.toString();
+		let availableRequests = await AccessRequestChaincode.GetAvailableAccessRequests(ctx);
+		return JSON.stringify(availableRequests);
 	}
+
+	// ==================================================================================================
+	// ====================================== PATIENT IDENTIFIERS =======================================
+	// ==================================================================================================
+
+	// UserExists - if user exists returns Identifier object
+	async UserExists(ctx, identifier){
+		const methodName = 'UserExists';
+		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
+
+		if(!hasPermission){
+			throw new Error(`Unauthorized access: ${methodName}`);
+		}
+		let patientIdentifiers = await PatientIdentifiersChaincode.UserExists(ctx, identifier);
+		return JSON.stringify(patientIdentifiers);
+	}
+
+	// GetPatientIdentifiers
+	async GetPatientIdentifiers(ctx, identifier){
+		const methodName = 'GetPatientIdentifiers';
+		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
+
+		if(!hasPermission){
+			throw new Error(`Unauthorized access: ${methodName}`);
+		}
+		console.log('User authorized');
+		let hashedIdentifier = await Util.CreateHash(identifier);
+		let patientIdentifiers = await PatientIdentifiersChaincode.GetPatientIdentifiers(ctx, hashedIdentifier);
+		return JSON.stringify(patientIdentifiers);
+	}
+
+	// UpdatePatientIdentifiers
+	async UpdatePatientIdentifiers(ctx, identifiersId, hashedIdentifier, offlineIdentifierUrl, hashedIdentifiers, salt, time){
+		const methodName = 'UpdatePatientIdentifiers';
+		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
+
+		if(!hasPermission){
+			throw new Error(`Unauthorized access: ${methodName}`);
+		}
+		console.log('User authorized');
+		let patientIdentifiers = await PatientIdentifiersChaincode.UpdatePatientIdentifiers(ctx, identifiersId, hashedIdentifier, offlineIdentifierUrl, hashedIdentifiers, salt, time);
+		return JSON.stringify(patientIdentifiers);
+	}
+
+	// ==================================================================================================
+	// ========================================= PATIENT RECORD =========================================
+	// ==================================================================================================
+
+	// CreatePatientRecord - creates patient record, patient identifiers and association
+	async CreatePatientRecord(ctx, identifier, hashedUserId, offlineDataUrl, hashedData, salt, offlineIdentifiersUrl,identifiersHashedData, identifiersSalt, time) {
+		const methodName = 'CreatePatientRecord';
+		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
+		let cn = await Util.GetCN(ctx);
+
+		if(!hasPermission || hashedUserId !== cn){
+			throw new Error(`Unauthorized access: ${methodName}`);
+		}
+		console.log('User authorized');
+
+		let hashedIdentifier = await Util.CreateHash(identifier);
+		let patientRecord = await PatientRecordChaincode.CreatePatientRecord(ctx, hashedIdentifier, offlineDataUrl, hashedData, salt, time);
+		await AssociationPatientRecordChaincode.CreateAssociation(ctx, hashedUserId, patientRecord.recordId, time);
+		await PatientIdentifiersChaincode.CreatePatientIdentifiers(ctx, hashedIdentifier, offlineIdentifiersUrl, identifiersHashedData, identifiersSalt, time);
+		return JSON.stringify(patientRecord);
+	}
+
+	// GetPatientRecordByIdentifier - create a patient record, store into chaincode state
+	// async GetPatientRecordByIdentifier(ctx, identifier) {
+	// 	let patientRecord = await PatientRecordChaincode.CreatePatientRecord(ctx, identifier, hashedUserId, offlineDataUrl, hashedData, salt, time);
+	// 	await AssociationPatientRecordChaincode.CreateAssociation(ctx, hashedUserId, patientRecord.uniqueId, time);
+	// 	return JSON.stringify(patientRecord);
+	// }
+
+
+	// GetMyPatientRecord - retreive patient record of user with patiendId
+	async GetMyPatientRecord(ctx) {
+		let role = await Util.GetUserRole(ctx);
+		let userId = await Util.GetCN(ctx);
+
+		if(role !== 'ROLE_PATIENT'){
+			throw new Error('Unauthorized access to patient record!');
+		}
+
+		let association = await AssociationPatientRecordChaincode.GetAssociation(ctx, userId);
+
+		if(!association){
+			throw new Error('Invalid patient id.');
+		}
+
+		let patientRecord = await PatientRecordChaincode.GetPatientRecord(ctx, association.recordId);
+		return JSON.stringify(patientRecord);
+	}
+
+	// UpdatePatientRecord - update patient record with new hash of record data
+	async UpdateMyPatientRecord(ctx, offlineDataUrl, hashedData, salt, time) {
+		let role = await Util.GetUserRole(ctx);
+		let userId = await Util.GetCN(ctx);
+
+		if(role !== 'ROLE_PATIENT'){
+			throw new Error('Unauthorized access to patient record!');
+		}
+
+		let association = await AssociationPatientRecordChaincode.GetAssociation(ctx, userId);
+
+		if(!association){
+			throw new Error('Invalid patient id.');
+		}
+
+		let patientRecord = await PatientRecordChaincode.UpdatePatientRecord(ctx, association.recordId, offlineDataUrl, hashedData, salt, time);
+		return JSON.stringify(patientRecord);
+	}
+
+	// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	// PreviewPatientRecord - returns if user has permission to see preview of patient record
+	async PreviewPatientRecord(ctx) {
+		let role = await Util.GetUserRole(ctx);
+
+		let result = true;
+		if(role !== 'ROLE_PRACTITIONER'){
+			result = false;
+		}
+
+		return JSON.stringify(result);
+	}
+
+	// UpdatePatientRecord - update patient record with new hash of record data
+	async UpdatePatientRecord(ctx, patientId, hashedData, time) {
+		let role = await Util.GetUserRole(ctx);
+
+		if(role !== 'ROLE_PRACTITIONER'){
+			throw new Error('Unauthorized access to patient record!');
+		}
+
+		let association = await AssociationPatientRecordChaincode.GetAssociation(ctx, patientId);
+
+		if(!association){
+			throw new Error('Invalid patient id.');
+		}
+
+		let patientRecord = await PatientRecordChaincode.UpdatePatientRecord(ctx, association.recordId, hashedData, time);
+		patientRecord.userId = patientId;
+		return JSON.stringify(patientRecord);
+	}
+
+	// GetPatientRecord - retreive patient record of user with patiendId
+	async GetPatientRecord(ctx, uniqueId) {
+		let role = await Util.GetUserRole(ctx);
+
+		if(role !== 'ROLE_PRACTITIONER' || role !== 'ROLE_ADMIN' ){
+			throw new Error('unauthorized access to patient record!');
+		}
+
+		let patientRecord = await PatientRecordChaincode.GetPatientRecord(ctx, uniqueId);
+		return JSON.stringify(patientRecord);
+	}
+
+
+	// ==================================================================================================
+	// =============================================== END ==============================================
+	// ==================================================================================================
 
 	// delete - remove a asset key/value pair from state
 	async DeleteAsset(ctx, id) {
@@ -199,27 +300,6 @@ class Chaincode extends Contract {
 		}
 		//  Delete index entry to state.
 		await ctx.stub.deleteState(colorNameIndexKey);
-	}
-
-	// TransferAsset transfers a asset by setting a new owner name on the asset
-	async TransferAsset(ctx, assetName, newOwner) {
-
-		let assetAsBytes = await ctx.stub.getState(assetName);
-		if (!assetAsBytes || !assetAsBytes.toString()) {
-			throw new Error(`Asset ${assetName} does not exist`);
-		}
-		let assetToTransfer = {};
-		try {
-			assetToTransfer = JSON.parse(assetAsBytes.toString()); //unmarshal
-		} catch (err) {
-			let jsonResp = {};
-			jsonResp.error = 'Failed to decode JSON of: ' + assetName;
-			throw new Error(jsonResp);
-		}
-		assetToTransfer.owner = newOwner; //change the owner
-
-		let assetJSONasBytes = Buffer.from(JSON.stringify(assetToTransfer));
-		await ctx.stub.putState(assetName, assetJSONasBytes); //rewrite the asset
 	}
 
 	// GetAssetsByRange performs a range query based on the start and end keys provided.
@@ -273,19 +353,6 @@ class Chaincode extends Contract {
 		}
 	}
 
-	// QueryAssetsByOwner queries for assets based on a passed in owner.
-	// This is an example of a parameterized query where the query logic is baked into the chaincode,
-	// and accepting a single query parameter (owner).
-	// Only available on state databases that support rich query (e.g. CouchDB)
-	// Example: Parameterized rich query
-	async QueryAssetsByOwner(ctx, owner) {
-		let queryString = {};
-		queryString.selector = {};
-		queryString.selector.docType = 'asset';
-		queryString.selector.owner = owner;
-		return await this.GetQueryResultForQueryString(ctx, JSON.stringify(queryString)); //shim.success(queryResults);
-	}
-
 	// Example: Ad hoc rich query
 	// QueryAssets uses a query string to perform a query for assets.
 	// Query string matching state database syntax is passed in and executed as is.
@@ -296,15 +363,6 @@ class Chaincode extends Contract {
 		return await this.GetQueryResultForQueryString(ctx, queryString);
 	}
 
-	// GetQueryResultForQueryString executes the passed in query string.
-	// Result set is built and returned as a byte array containing the JSON results.
-	async GetQueryResultForQueryString(ctx, queryString) {
-
-		let resultsIterator = await ctx.stub.getQueryResult(queryString);
-		let results = await this._GetAllResults(resultsIterator, false);
-
-		return results;
-	}
 
 	// Example: Pagination with Range Query
 	// GetAssetsByRangeWithPagination performs a range query based on the start & end key,
@@ -345,59 +403,6 @@ class Chaincode extends Contract {
 		results.bookmark = metadata.bookmark;
 
 		return JSON.stringify(results);
-	}
-
-	// GetAssetHistory returns the chain of custody for an asset since issuance.
-	async GetAssetHistory(ctx, assetName) {
-
-		let resultsIterator = await ctx.stub.getHistoryForKey(assetName);
-		let results = await this._GetAllResults(resultsIterator, true);
-
-		return JSON.stringify(results);
-	}
-
-	// AssetExists returns true when asset with given ID exists in world state
-	async AssetExists(ctx, assetName) {
-		// ==== Check if asset already exists ====
-		let assetState = await ctx.stub.getState(assetName);
-		return assetState && assetState.length > 0;
-	}
-
-	// This is JavaScript so without Funcation Decorators, all functions are assumed
-	// to be transaction functions
-	//
-	// For internal functions... prefix them with _
-	async _GetAllResults(iterator, isHistory) {
-		let allResults = [];
-		let res = await iterator.next();
-		while (!res.done) {
-			if (res.value && res.value.value.toString()) {
-				let jsonRes = {};
-				console.log(res.value.value.toString('utf8'));
-				if (isHistory && isHistory === true) {
-					jsonRes.TxId = res.value.txId;
-					jsonRes.Timestamp = res.value.timestamp;
-					try {
-						jsonRes.Value = JSON.parse(res.value.value.toString('utf8'));
-					} catch (err) {
-						console.log(err);
-						jsonRes.Value = res.value.value.toString('utf8');
-					}
-				} else {
-					jsonRes.Key = res.value.key;
-					try {
-						jsonRes.Record = JSON.parse(res.value.value.toString('utf8'));
-					} catch (err) {
-						console.log(err);
-						jsonRes.Record = res.value.value.toString('utf8');
-					}
-				}
-				allResults.push(jsonRes);
-			}
-			res = await iterator.next();
-		}
-		iterator.close();
-		return allResults;
 	}
 
 }

@@ -1,14 +1,49 @@
 const asn1js = require('asn1js');
 const pkijs = require('pkijs');
+const crypto = require('crypto-js');
 
 class Util{
+
+	static async GenerateID(docType, txId){
+		this.writeInfo('GenerateID');
+		const combinedAttributes = docType + txId;
+
+		const hash = crypto.SHA256(combinedAttributes);
+		const hashHex = hash.toString(crypto.enc.Hex);
+		return hashHex;
+	}
+
+	static async CreateHash(plainData){
+		this.writeInfo('CreateHash');
+
+		const hash = crypto.SHA256(plainData);
+		const hashHex = hash.toString(crypto.enc.Hex);
+		this.writeInfo(hash);
+		this.writeInfo(hashHex);
+		return hashHex;
+	}
+
 	static async RoleHasPermission(ctx, methodName){
+		this.writeInfo('RoleHasPermission');
 		const role = await this.GetUserRole(ctx);
 		switch(methodName){
+		case 'UserExists':
+			return role === 'ROLE_ADMIN';
+		case 'UpdatePatientIdentifiers':
+			return role === 'ROLE_ADMIN';
+		case 'GetPatientIdentifiers':
+			return role === 'ROLE_ADMIN';
+		case 'GetPatientRecordByIdentifier':
+			return role === 'ROLE_ADMIN';
+		case 'GetAccessRequestForUser':
+			return ['ROLE_PRACTITIONER', 'ROLE_PATIENT'].includes(role);
 		case 'CreateAccessRequest':
 			return role === 'ROLE_PRACTITIONER';
-		case 'GetAccessRequest':
-			console.log('Return value: ' + ['ROLE_PRACTITIONER', 'ROLE_PATIENT'].includes(role));
+		case 'ReviewAccessRequest':
+			return role === 'ROLE_PATIENT';
+		case 'CreatePatientRecord':
+			return role === 'ROLE_PATIENT';
+		case 'UpdatePatientRecord':
 			return ['ROLE_PRACTITIONER', 'ROLE_PATIENT'].includes(role);
 		default:
 			console.log('Undefined method name');
@@ -16,8 +51,8 @@ class Util{
 		}
 	}
 
-	static async GetCN(ctx){
-		console.log('GetCN(ctx)');
+	static GetCN(ctx){
+		this.writeInfo('GetCN');
 		const clientIdentity = ctx.clientIdentity;
 		const id = clientIdentity.getID();
 		let cnIndex = id.indexOf('CN=');
@@ -27,7 +62,7 @@ class Util{
 	}
 
 	static async GetUserRole(ctx) {
-		console.log('GetUserRole');
+		this.writeInfo('GetUserRole');
 		const creatorBytes = ctx.stub.getCreator();
 		const clientIdentity = new TextDecoder().decode(creatorBytes.idBytes);
 
@@ -58,6 +93,7 @@ class Util{
 	}
 
 	static async GenerateX509CertificateFromPEM(pemCertificate) {
+		this.writeInfo('GenerateX509CertificateFromPEM');
 		const cleanedPem = pemCertificate.replace('-----BEGIN CERTIFICATE-----', '')
 			.replace('-----END CERTIFICATE-----', '')
 			.replace(/\n/g, '');
@@ -71,6 +107,66 @@ class Util{
 			throw new Error('Failed to generate X.509 certificate from PEM');
 		}
 	}
+
+
+	// GetQueryResultForQueryString executes the passed in query string.
+	// Result set is built and returned as a byte array containing the JSON results.
+	static async GetQueryResultForQueryString(ctx, queryString) {
+		this.writeInfo('GetQueryResultForQueryString');
+
+		let resultsIterator = await ctx.stub.getQueryResult(queryString);
+		let results = await this._GetAllResults(resultsIterator, false);
+
+		return results;
+	}
+
+
+	// This is JavaScript so without Funcation Decorators, all functions are assumed
+	// to be transaction functions
+	//
+	// For internal functions... prefix them with _
+	static async _GetAllResults(iterator, isHistory) {
+		this.writeInfo('_GetAllResults');
+		let allResults = [];
+		let res = await iterator.next();
+		while (!res.done) {
+			if (res.value && res.value.value.toString()) {
+				let jsonRes = {};
+				console.log(res.value.value.toString('utf8'));
+				if (isHistory && isHistory === true) {
+					jsonRes.TxId = res.value.txId;
+					jsonRes.Timestamp = res.value.timestamp;
+					try {
+						jsonRes.Value = JSON.parse(res.value.value.toString('utf8'));
+					} catch (err) {
+						console.log(err);
+						jsonRes.Value = res.value.value.toString('utf8');
+					}
+				} else {
+					jsonRes.Key = res.value.key;
+					try {
+						jsonRes.Record = JSON.parse(res.value.value.toString('utf8'));
+					} catch (err) {
+						console.log(err);
+						jsonRes.Record = res.value.value.toString('utf8');
+					}
+				}
+				allResults.push(jsonRes);
+			}
+			res = await iterator.next();
+		}
+		iterator.close();
+		return allResults;
+	}
+
+	static ConvertToBool(boolStr){
+		return String(boolStr) === 'true';
+	}
+
+	static writeInfo(method){
+		console.log('Util: ' + method);
+	}
+
 }
 
 module.exports = {Util};

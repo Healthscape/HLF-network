@@ -1,0 +1,1 @@
+{"index":{"fields":["docType","practitionerId", {"lastUpdated":"desc"}]},"ddoc":"indexPractitionerSort", "name":"indexPatientSort","type":"json"}
