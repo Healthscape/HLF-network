@@ -8,16 +8,16 @@ class Util{
 		this.writeInfo('GenerateID');
 		const combinedAttributes = docType + txId;
 
-		const hash = crypto.SHA256(combinedAttributes);
-		const hashHex = hash.toString(crypto.enc.Hex);
+		const hash = await crypto.SHA256(combinedAttributes);
+		const hashHex = await hash.toString(crypto.enc.Hex);
 		return hashHex;
 	}
 
 	static async CreateHash(plainData){
 		this.writeInfo('CreateHash');
 
-		const hash = crypto.SHA256(plainData);
-		const hashHex = hash.toString(crypto.enc.Hex);
+		const hash = await crypto.SHA256(plainData);
+		const hashHex = await hash.toString(crypto.enc.Hex);
 		this.writeInfo(hash);
 		this.writeInfo(hashHex);
 		return hashHex;
@@ -77,7 +77,7 @@ class Util{
 		const extnValue = customExtension.extnValue.valueBeforeDecodeView;
 		const decoder = new TextDecoder();
 		const extnValueDecoded = decoder.decode(extnValue);
-
+		
 		const startIndex = extnValueDecoded.indexOf('ROLE_');
 		const endIndex = extnValueDecoded.indexOf('"', startIndex);
 
@@ -90,6 +90,38 @@ class Util{
 		console.log('Role of user running the request is: ' + role);
 
 		return role;
+	}
+	
+
+	static async GetUserName(ctx) {
+		this.writeInfo('GetUserName');
+		const creatorBytes = ctx.stub.getCreator();
+		const clientIdentity = new TextDecoder().decode(creatorBytes.idBytes);
+
+		const userCert = await this.GenerateX509CertificateFromPEM(clientIdentity);
+		const extensions = userCert.extensions;
+		const customExtension = extensions.find(ext => ext.extnID === '1.2.3.4.5.6.7.8.1');
+
+		if(customExtension === undefined){
+			return '';
+		}
+
+		const extnValue = customExtension.extnValue.valueBeforeDecodeView;
+		const decoder = new TextDecoder();
+		const extnValueDecoded = decoder.decode(extnValue);
+		
+		const indexName = extnValueDecoded.indexOf('\"name\":\"');
+		const indexNameEnd = extnValueDecoded.indexOf('\"', indexName + 8);
+
+		if(indexName === -1){
+			throw new Error('Invalid certificate: Inadequate name');
+		}
+
+		const name = extnValueDecoded.substring(indexName + 8, indexNameEnd);
+
+		console.log('Name of user running the request is: ' + name);
+
+		return name;
 	}
 
 	static async GenerateX509CertificateFromPEM(pemCertificate) {

@@ -10,13 +10,14 @@ class PatientIdentifiersChaincode {
 
 	// UserExists - checks if user with personalId already exist
 	static async UserExists(ctx, identifier){
-		return await this.#getPatientIdentifiers(ctx, identifier);
+		return await this.#getPatientIdentifiers(ctx, identifier, false);
 	}
 
 	// CreatePatientIdentifiers - creates patient identifiers block
 	static async CreatePatientIdentifiers(ctx, hashedIdentifier, offlineIdentifiersUrl, identifiersHashedData, identifiersSalt, time){
 		const methodName = 'CreatePatientIdentifiers';
 		this.writeInfo(methodName);
+		this.writeInfo("Saving user with hashedIdentifier: ", hashedIdentifier);
 
 		let txID =  ctx.stub.getTxID();
 		const identifiersId = await Util.GenerateID(DocType.PATIENT_IDENTIFIERS, txID);
@@ -29,7 +30,7 @@ class PatientIdentifiersChaincode {
 
 	// GetPatientIdentifiers - gets patient identifiers block
 	static async GetPatientIdentifiers(ctx, hashedIdentifier){
-		const patientIdentifiers = await this.#getPatientIdentifiers(ctx, hashedIdentifier);
+		const patientIdentifiers = await this.#getPatientIdentifiers(ctx, hashedIdentifier, false);
 
 		if(!patientIdentifiers){
 			throw new Error(`Patient identifiers ${hashedIdentifier} does not exist`);
@@ -41,10 +42,10 @@ class PatientIdentifiersChaincode {
 	// UpdatePatientIdentifiers - update identifiers of existing patient to add new one
 	static async UpdatePatientIdentifiers(ctx, identifiersId, hashedIdentifier, offlineIdentifierUrl, hashedIdentifiers, salt, time){
 		let txID =  ctx.stub.getTxID()
-		const patientIdentifiers = await this.#getPatientIdentifiers(ctx, hashedIdentifier);
+		const patientIdentifiers = await this.#getPatientIdentifiers(ctx, hashedIdentifier, true);
 
 		if(!patientIdentifiers){
-			throw new Error(`Patient record ${recordId} does not exist`);
+			throw new Error(`Patient record ${hashedIdentifier} does not exist`);
 		}
 
 		patientIdentifiers.offlineIdentifierUrl = offlineIdentifierUrl;
@@ -64,18 +65,27 @@ class PatientIdentifiersChaincode {
 	// ==================================================================================================
 
 	// #getPatientIdentifiers - gets identifiers if patient with identifier exists
-	static async #getPatientIdentifiers(ctx, hashedIdentifier){
+	static async #getPatientIdentifiers(ctx, identifier, isHashed){
 		this.writeInfo("#getPatientIdentifiers");
+		let hashedIdentifier = identifier;
+		if(!isHashed){
+			hashedIdentifier = await Util.CreateHash(identifier);
+		}
+		this.writeInfo("hashedIdentifier: {}");
+		this.writeInfo(hashedIdentifier);
+		this.writeInfo("identifier: {}");
+		this.writeInfo(identifier);
 		let queryString = {};
 		queryString.selector = {};
 		queryString.selector.docType = DocType.PATIENT_IDENTIFIERS;
 		queryString.selector.hashedIdentifier = hashedIdentifier;
 		let results =  await Util.GetQueryResultForQueryString(ctx, JSON.stringify(queryString));
+		this.writeInfo(JSON.stringify(results));
 		if(results.length === 1){
-			console.log(true);
-			return results[0];
+			this.writeInfo(true);
+			return results[0].Record;
 		}else if(results.length === 0){
-			console.log(false);
+			this.writeInfo(false);
 			return undefined;
 		}else{
 			throw new Error(`Found multiple assets of type ${DocType.PATIENT_IDENTIFIERS} with id: [${hashedIdentifier}]`);

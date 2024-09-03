@@ -32,15 +32,8 @@ class TransactionUtils{
 		}
 	}
 
-	static async afterTransaction(ctx) {
-        const timestamp = ctx.stub.getTxTimestamp();
-        const responsePayload = ctx.stub.getResponsePayload();
-
+	static async afterTransaction() {
 		console.log('===================================== END =====================================');
-		console.log();
-        console.info(`Timestamp: ${timestamp.seconds.low}`);
-        console.info(`Response payload: ${responsePayload}`);
-		console.log();
 		console.log('===============================================================================');
 	}
 }

@@ -26,30 +26,6 @@ class PatientRecordChaincode {
 
 		return patientRecord;
 	}
-	// GetPatientRecordByIdentifier
-	static async GetPatientRecordByIdentifier(ctx, identifier){
-		const methodName = 'GetPatientRecordByIdentifier';
-		this.writeInfo(methodName);
-		const hasPermission = await Util.RoleHasPermission(ctx, methodName);
-
-		if(hasPermission){
-			return await this.#getPatientRecordWithIdentifier(ctx, identifier) !== "";
-		}
-
-		throw new Error(`Unauthorized access: ${methodName}`);
-	}
-
-	// GetPatientRecord - retreive patient record of user with recordId
-	static async GetPatientRecord(ctx, recordId){
-		this.writeInfo("GetPatientRecord");
-		const patientRecord = await this.#getPatientRecord(ctx, recordId);
-
-		if(!patientRecord){
-			throw new Error(`Patient record ${recordId} does not exist`);
-		}
-
-		return patientRecord;
-	}
 
 	// UpdatePatientRecord - update patient record with new hash of record data
 	static async UpdatePatientRecord(ctx, recordId, offlineDataUrl, hashedData, salt, time){
@@ -71,31 +47,27 @@ class PatientRecordChaincode {
 		await ctx.stub.putState(recordId, requestJSONasBytes); //rewrite the request
 		return patientRecord;
 	}
+	
+	// GetPatientRecord - retreive patient record of user with recordId
+	static async GetPatientRecord(ctx, recordId){
+		this.writeInfo("GetPatientRecord");
+		const patientRecord = await this.#getPatientRecord(ctx, recordId);
 
-	// // GetPatientRecords - retreive patient records of found associations
-	// static async GetPatientRecords(associationList){
-	// 	this.writeInfo("GetPatientRecords");
-	// 	let patientRecords = []
-	// 	for(let association of associationList){
-	// 		const patientRecord = await this.#getPatientRecord(ctx, association.recordId);
+		if(!patientRecord){
+			throw new Error(`Patient record ${recordId} does not exist`);
+		}
 
-	// 		if(!patientRecord){
-	// 			throw new Error(`Patient record ${recordId} does not exist`);
-	// 		}
-
-	// 		patientRecords.push(patientRecord);
-	// 	}
-	// 	return patientRecords;
-	// }
+		return patientRecord;
+	}
 
 	// ==================================================================================================
 	// ======================================== PRIVATE METHODS =========================================
 	// ==================================================================================================
 
 	// #getPatientRecord - get record by record id
-	static async #getPatientRecord(ctx, reccordId){
+	static async #getPatientRecord(ctx, recordId){
 		this.writeInfo("#getPatientRecord");
-		let requestAsBytes = await ctx.stub.getState(reccordId);
+		let requestAsBytes = await ctx.stub.getState(recordId);
 		if (!requestAsBytes || !requestAsBytes.toString()) {
 			return null;
 		}

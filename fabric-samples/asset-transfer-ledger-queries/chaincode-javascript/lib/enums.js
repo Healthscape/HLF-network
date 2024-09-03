@@ -1,16 +1,8 @@
 const DocType = Object.freeze({
-	ACCESS_REQUEST: 'ACCESS_REQUEST',
+	ACCESS_LOG: 'ACCESS_LOG',
 	PATIENT_RECORD: 'PATIENT_RECORD',
 	ASSOCIATION: 'ASSOCIATION',
 	PATIENT_IDENTIFIERS: 'PATIENT_IDENTIFIERS'
-});
-
-const AccessRequestDecision = Object.freeze({
-	UNDEFINED: 'UNDEFINED',
-	UNLIMITED: 'UNLIMITED',
-	NO_ACCESS: 'NO_ACCESS',
-	ONE_TIME: 'NO_ACCESS',
-	CUSTOM: 'CUSTOM'
 });
 
 const Role = Object.freeze({
@@ -19,4 +11,10 @@ const Role = Object.freeze({
 	PRACTITIONER: 'ROLE_PRACTITIONER'
 });
 
-module.exports = {DocType, AccessRequestDecision, Role};
+const Action = Object.freeze({
+	CREATE: 'CREATE',
+	VIEW: 'VIEW',
+	EDIT: 'EDIT'
+})
+
+module.exports = {DocType, Role, Action};

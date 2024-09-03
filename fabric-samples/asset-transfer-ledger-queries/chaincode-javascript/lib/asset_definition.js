@@ -1,4 +1,4 @@
-const {DocType, AccessRequestDecision} = require('./enums.js');
+const {DocType} = require('./enums.js');
 
 class AssociationPatientRecord {
 	constructor(associationId, userId, recordId, dateAdded, createdBy) {
@@ -26,7 +26,7 @@ class PatientRecord {
 
 class PatientIdentifiers {
 	constructor(identifiersId, hashedIdentifier, offlineIdentifierUrl, hashedIdentifiers, salt, lastUpdated, lastUpdatedTxId) {
-		this.docType = DocType.PATIENT_RECORD;
+		this.docType = DocType.PATIENT_IDENTIFIERS;
 		this.identifiersId = identifiersId;
 		this.hashedIdentifier = hashedIdentifier;
 		this.offlineIdentifierUrl = offlineIdentifierUrl;
@@ -37,30 +37,19 @@ class PatientIdentifiers {
 	}
 }
 
-class AccessRequest {
-	constructor(requestId, patientId, practitionerId, lastUpdated, lastUpdatedTxId) {
-		this.docType = DocType.ACCESS_REQUEST;
-		this.requestId = requestId;
-		this.patientId = patientId;
-		this.practitionerId = practitionerId;
-		this.lastUpdated = lastUpdated;
-		this.reviewed = false;
-		this.decision = AccessRequestDecision.UNDEFINED;
-		this.availableFrom = '';
-		this.availableUntil = '';
-		this.itemsAccess = [];
-		this.lastUpdatedTxId = lastUpdatedTxId;
+class AccessLog {
+	constructor(id, recordId, accessorId, accessorName, accessorRole, accessorOrg, action, timestamp, txId) {
+		this.docType = DocType.ACCESS_LOG;
+		this.recordId = recordId;
+		this.id = id;
+		this.accessorId = accessorId;
+		this.accessorName = accessorName;
+		this.accessorRole = accessorRole;
+		this.accessorOrg = accessorOrg;
+		this.action = action;
+		this.timestamp = timestamp;
+		this.txId = txId;
 	}
 }
 
-class ItemAccess {
-	constructor(item, time, decision, availableFrom, availableUntil) {
-		this.item = item;
-		this.time = time;
-		this.decision = decision;
-		this.availableFrom = availableFrom;
-		this.availableUntil = availableUntil;
-	}
-}
-
-module.exports = {PatientRecord, AccessRequest, ItemAccess, AssociationPatientRecord, PatientIdentifiers};
+module.exports = {PatientRecord, AccessLog, AssociationPatientRecord, PatientIdentifiers};
